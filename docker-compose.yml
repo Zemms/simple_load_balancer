@@ -1,0 +1,48 @@
+services:
+  db:
+    image: postgres:17
+    container_name: balancer_db
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: balancer_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    networks:
+      - application-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: balancer_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - application-network
+
+  app:
+    build: .
+    container_name: balancer_app
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_NAME: balancer_db
+      DATABASE_PASSWORD: password
+      DATABASE_USER: user
+      DATABASE_HOST: db
+      DATABASE_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - db
+      - redis
+    networks:
+      - application-network
+
+volumes:
+  postgres_data:
+
+networks:
+  application-network:
+    name: application-network

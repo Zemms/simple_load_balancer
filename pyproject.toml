@@ -1,0 +1,27 @@
+[project]
+name = "pythonproject"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "d.zemskov",email = "absdestroyed@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic (==1.16.4)",
+    "asyncpg (==0.30.0)",
+    "fastapi (==0.116.1)",
+    "pydantic (==2.11.7)",
+    "pydantic-settings (==2.8.1)",
+    "sqlalchemy (==2.0.42)",
+    "uvicorn (>=0.35.0,<0.36.0)",
+    "redis (>=6.4.0,<7.0.0)"
+]
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.4.2"
+isort = "^5.13.2"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
