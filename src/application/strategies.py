@@ -4,9 +4,10 @@ from urllib.parse import urlparse
 
 from redis import asyncio as aioredis
 
+from src.core.utils import extract_server_name_from_url
 from src.domain.enums import ResourceTypeEnum
-from src.domain.repositories import CdnSettingsRepository, CdnRequestCounterRepository
-from src.domain.schemas import TargetResource
+from src.domain.repositories import BaseCrudRepository, CdnRequestCounterRepository
+from src.domain.schemas import TargetResource, CdnServer, OriginServer
 
 
 class BalancingStrategy(ABC):
@@ -20,32 +21,46 @@ class NthRequestStrategy(BalancingStrategy):
 
     def __init__(
         self,
-        settings_repo: CdnSettingsRepository,
+        cdn_repo: BaseCrudRepository[CdnServer],
+        origin_repo: BaseCrudRepository[OriginServer],
         counter_repo: CdnRequestCounterRepository,
     ):
-        self._settings_repo = settings_repo
+        self._cdn_repo = cdn_repo
+        self._origin_repo = origin_repo
         self._counter_repo = counter_repo
 
     async def get_target_resource(self, video_url: str) -> TargetResource:
-        settings = await self._settings_repo.read()
+        cdn_settings = await self._cdn_repo.read()
+
+        if cdn_settings is None:
+            raise ValueError("Отсутствует установленный CDN")
 
         try:
-            counter_value: int = await self._counter_repo.increment()
+            # Получаем данные о сервере (БД или кеш)
+            server_name = extract_server_name_from_url(video_url)
+            server_settings = await self._origin_repo.read(name=server_name)
 
             # Каждый N - ный запрос отдаём в оригинальный URL
-            if not counter_value % settings.ratio:
+            counter_value = await self._counter_repo.increment()
+
+            ratio: int = (
+                getattr(server_settings, "redirecting_ratio", None)
+                or cdn_settings.default_redirecting_ratio
+            )
+
+            if not counter_value % ratio:
                 return TargetResource(type=ResourceTypeEnum.ORIGIN, url=video_url)
 
             return TargetResource(
                 type=ResourceTypeEnum.CDN,
-                url=self._build_cdn_url(video_url, settings.host),
+                url=self._build_cdn_url(video_url, cdn_settings.host_name),
             )
 
-        # Redis оказался недоступен - прокидываем через CDN
+        # Redis свалился - прокидываем через CDN
         except aioredis.RedisError:
             return TargetResource(
                 ResourceTypeEnum.CDN,
-                url=self._build_cdn_url(video_url, settings.host),
+                url=self._build_cdn_url(video_url, cdn_settings.host_name),
             )
 
         # Неизвестная ошибка - кидаем оригинальный URL

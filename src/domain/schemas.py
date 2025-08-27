@@ -4,9 +4,15 @@ from src.domain.enums import ResourceTypeEnum
 
 
 @dataclass(slots=True)
-class CdnSettings:
-    host: str
-    ratio: int
+class CdnServer:
+    host_name: str
+    default_redirecting_ratio: int
+
+
+@dataclass(slots=True)
+class OriginServer:
+    name: str
+    redirecting_ratio: int | None = None
 
 
 @dataclass(slots=True)

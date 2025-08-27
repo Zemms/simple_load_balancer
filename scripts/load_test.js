@@ -1,60 +1,108 @@
 import http from 'k6/http';
 import { check } from 'k6';
+import { randomItem, randomIntBetween } from 'https://jslib.k6.io/k6-utils/1.2.0/index.js';
 
+// --- Опции теста ---
 export const options = {
-  // Пороговые значения можно оставить прежними или смягчить,
-  // если вы ожидаете, что на пике производительность немного просядет.
   thresholds: {
-    'http_req_failed': ['rate<0.01'], // Доля ошибок < 1%
-    'http_req_duration': ['p(95)<500'], // 95% запросов быстрее 500ms
+    'http_req_failed': ['rate<0.02'], // Допускаем чуть больше ошибок из-за возможных 404
+    'http_req_duration': ['p(95)<500'],
   },
-
   scenarios: {
-    // Назовем сценарий 'peak_load'
     peak_load: {
       executor: 'ramping-arrival-rate',
-
-      // Настройки для управления частотой запросов
-      startRate: 50,    // Начинаем с 50 RPS
-      timeUnit: '1s', // Считаем запросы в секунду
-
-      // Выделяем ресурсы для k6, чтобы он мог достичь цели
-      preAllocatedVUs: 500,  // Начинаем с 500 "готовых" пользователей
-      maxVUs: 2000,        // Максимум можем использовать 2000 пользователей
-
-      // Этапы теста
+      startRate: 50,
+      timeUnit: '1s',
+      preAllocatedVUs: 500,
+      maxVUs: 2000,
       stages: [
-        // 1. Плавный разгон до 500 RPS за 30 секунд
         { duration: '30s', target: 500 },
-        // 2. Удержание нагрузки в 500 RPS в течение 1 минуты для "прогрева"
         { duration: '1m', target: 500 },
-        // 3. Плавный разгон до пиковой нагрузки в 1500 RPS за 30 секунд
         { duration: '30s', target: 1500 },
-        // 4. Удержание пиковой нагрузки в 1500 RPS в течение 1 минуты
         { duration: '1m', target: 1500 },
-        // 5. Плавное снижение нагрузки до нуля за 30 секунд
         { duration: '30s', target: 0 },
       ],
     },
   },
 };
 
-export default function () {
-  const videoUrl = 'http://s1.origin-cluster/video/1488/xcg2djHckad.m3u8';
+// --- Функция подготовки (SETUP) ---
+export function setup() {
+  console.log('--- Running Setup: Creating CDN and Origin servers ---');
+
+  const headers = { 'Content-Type': 'application/json' };
+
+  // 1. Создаем CDN сервер
+  const cdnPayload = JSON.stringify({
+    host_name: "my-cdn.com",
+    default_redirecting_ratio: 20,
+  });
+  const cdnRes = http.post('http://localhost:8000/cdn/', cdnPayload, { headers });
+  check(cdnRes, { 'setup: CDN server created': (r) => r.status === 200 });
+
+  // 2. Создаем несколько Origin серверов
+  const originServersToCreate = [
+    { name: 's1', redirecting_ratio: 10 },
+    { name: 's2', redirecting_ratio: 5 },
+    { name: 's3', redirecting_ratio: null }, // Будет использовать дефолтный ratio от CDN
+    { name: 's4', redirecting_ratio: 50 },
+    { name: 's5', redirecting_ratio: 100 },
+  ];
+
+  const createdOriginServers = [];
+
+  for (const server of originServersToCreate) {
+    const originPayload = JSON.stringify(server);
+    const originRes = http.post('http://localhost:8000/origin/', originPayload, { headers });
+    check(originRes, { [`setup: Origin server ${server.name} created`]: (r) => r.status === 200 });
+    createdOriginServers.push(server);
+  }
+
+  console.log('--- Setup Complete ---');
+
+  // Передаем список созданных серверов в основной тест
+  return { originServers: createdOriginServers };
+}
+
+// --- Основная функция теста (VU code) ---
+export default function (data) {
+  let serverName;
+
+  // 90% запросов будут к существующим серверам, 10% - к несуществующему
+  if (Math.random() < 0.9) {
+    // Выбираем случайный сервер из тех, что создали в setup
+    serverName = randomItem(data.originServers).name;
+  } else {
+    // Эмулируем промах кеша, запрашивая несуществующий сервер
+    serverName = `s${randomIntBetween(90, 99)}`;
+  }
+
+  // Генерируем случайный путь для URL
+  const videoId = randomIntBetween(1000, 9999);
+  const videoHash = Math.random().toString(36).substring(2, 15);
+
+  const videoUrl = `http://${serverName}.origin-cluster/video/${videoId}/${videoHash}.m3u8`;
 
   const res = http.get(
     `http://localhost:8000/?video_url=${encodeURIComponent(videoUrl)}`,
     {
       redirects: 0,
-      tags: { name: 'GET /' } // Группируем запросы для чистоты отчета
+      tags: {
+        name: 'GET /balance_request', // Группируем запросы
+        server: serverName.startsWith('s9') ? 'non-existent' : 'existent' // Добавляем тег для анализа
+      }
     }
   );
 
-  // Проверяем, что ответ корректный
   check(res, {
     'status is 307': (r) => r.status === 307,
     'has location header': (r) => r.headers['Location'] !== undefined,
   });
+}
 
-  // sleep(1) здесь не нужен, так как executor сам управляет частотой запросов.
+// --- Функция завершения (TEARDOWN) (опционально) ---
+export function teardown(data) {
+  console.log('--- Running Teardown ---');
+  // Здесь можно было бы удалить созданные в setup сущности,
+  // но для простоты оставим это пустым.
 }

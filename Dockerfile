@@ -23,4 +23,4 @@ COPY src/ ./src
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Запускаем
-CMD ["uvicorn", "src.main:fastapi_instance", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:fastapi_instance", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
