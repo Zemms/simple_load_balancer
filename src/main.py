@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from src.infrastructure.database.models.base import Base
 from src.infrastructure.database.session import get_async_session, get_async_engine
+from .infrastructure.database.bootstrap import bootstrap_database
 from .presentation.rest.api import root_router
 from .presentation.rest.dependencies import get_redis_client
 
@@ -34,9 +35,11 @@ async def lifespan(app: FastAPI):
     await _check_db_connection()
     await _check_redis_connection()
 
-    # Создаем таблицы в БД
+    # Создаем таблицы в БД и наполняем первоначальными данными
     async with get_async_engine().begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    await bootstrap_database()
 
     yield
 

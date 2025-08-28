@@ -30,9 +30,11 @@ def get_redis_client() -> aioredis.Redis:
     global _redis_instance
 
     if _redis_instance is None:
-        _redis_instance = aioredis.Redis.from_url(
-            url=RedisSettings().url, decode_responses=True
+        pool = aioredis.ConnectionPool.from_url(
+            url=RedisSettings().url, max_connections=100, decode_responses=True
         )
+
+        _redis_instance = aioredis.Redis(connection_pool=pool)
 
     return _redis_instance
 
