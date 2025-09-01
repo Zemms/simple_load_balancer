@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from fastapi import Depends, Query
 from redis import asyncio as aioredis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,21 +24,15 @@ from src.infrastructure.database.repositories.origin import (
 )
 from src.infrastructure.database.session import get_async_session
 
-_redis_instance = None
-
 
 # Базовые зависимости - клиент Redis и сессия алхимии
+@lru_cache
 def get_redis_client() -> aioredis.Redis:
-    global _redis_instance
+    pool = aioredis.ConnectionPool.from_url(
+        url=RedisSettings().url, max_connections=100, decode_responses=True
+    )
 
-    if _redis_instance is None:
-        pool = aioredis.ConnectionPool.from_url(
-            url=RedisSettings().url, max_connections=100, decode_responses=True
-        )
-
-        _redis_instance = aioredis.Redis(connection_pool=pool)
-
-    return _redis_instance
+    return aioredis.Redis(connection_pool=pool)
 
 
 async def get_db_session() -> AsyncSession:
